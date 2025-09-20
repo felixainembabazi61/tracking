@@ -3,81 +3,108 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Live Location Tracker</title>
-  <link rel="stylesheet" href="style.css">
+  <title>Real-Time Location Tracker</title>
+  <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-  <h2>Live Location Tracker</h2>
-  <p>Select mode:</p>
-  <button class="track" onclick="startTracking()">Track My Location</button>
-  <button class="view" onclick="startViewing()">View Location</button>
+  <div class="container">
+    <button id="button" onclick="startTracking()">Start Tracking</button>
+    <button id="stopButton" onclick="stopTracking()" style="display:none;">Stop Tracking</button>
 
-  <div id="tracking-section" class="hidden">
-    <p class="status" id="track-status">Waiting to start...</p>
-  </div>
+    <div class="location-details">
+      <div class="form-section">
+        <label>Address</label>
+        <textarea id="Address" rows="4" readonly>Waiting to get your location...</textarea>
 
-  <div id="viewing-section" class="hidden">
-    <p class="status" id="view-status">Waiting for location...</p>
-    <iframe id="map" src="https://www.google.com/maps?q=&z=5&output=embed"></iframe>
+        <label>Coordinates (Decimal Degrees)</label>
+        <div class="coords">
+          <div>
+            <label>Latitude</label>
+            <input type="number" id="latitude" value="00.00" readonly>
+          </div>
+          <div>
+            <label>Longitude</label>
+            <input type="number" id="longitude" value="00.00" readonly>
+          </div>
+        </div>
+      </div>
+
+      <div class="map-section">
+        <iframe id="iframe"
+          src="https://www.google.com/maps?q=&z=5&output=embed"
+          allowfullscreen
+          loading="lazy"
+          referrerpolicy="no-referrer-when-downgrade"
+          width="100%"
+          height="300">
+        </iframe>
+      </div>
+    </div>
   </div>
 
   <script>
-    const SERVER_URL = "http:// 192.168.137.52:5000";
+    let watchId = null;
 
-    // ------- TRACKING MODE -------
-    function sendLocation(position) {
+    async function updateLocation(position) {
       const lat = position.coords.latitude.toFixed(6);
       const lon = position.coords.longitude.toFixed(6);
 
-      document.getElementById("track-status").innerText = `📡 Sending: ${lat}, ${lon}`;
+      document.getElementById("latitude").value = lat;
+      document.getElementById("longitude").value = lon;
+      document.getElementById("iframe").src =
+        `https://www.google.com/maps?q=${lat},${lon}&z=15&output=embed`;
 
-      fetch(`${SERVER_URL}/update`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat, lon })
-      })
-      .then(res => res.json())
-      .then(() => console.log("Location sent"))
-      .catch(err => console.error(" Error sending:", err));
+      //  Fetch Address from OpenStreetMap
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`
+        );
+        const data = await response.json();
+
+        if (data && data.address) {
+          const addr = data.address;
+          const addressText = `
+            Continent: ${addr.continent || "N/A"}
+            Country: ${addr.country || "N/A"}
+            State/Region: ${addr.state || "N/A"}
+            District: ${addr.county || addr.city_district || "N/A"}
+            City/Town: ${addr.city || addr.town || addr.village || "N/A"}
+            Street: ${addr.road || "N/A"}
+            Postal Code: ${addr.postcode || "N/A"}
+            Facility/Place: ${addr.public_building || addr.neighbourhood || addr.suburb || "N/A"}
+          `.trim();
+
+          document.getElementById("Address").value = addressText;
+        } else {
+          document.getElementById("Address").value = "Address not found!";
+        }
+      } catch (error) {
+        document.getElementById("Address").value = "Failed to fetch address.";
+        console.error(error);
+      }
     }
 
     function startTracking() {
-      document.getElementById("tracking-section").classList.remove("hidden");
-      document.getElementById("viewing-section").classList.add("hidden");
-
       if (navigator.geolocation) {
-        navigator.geolocation.watchPosition(sendLocation, (err) => {
-          document.getElementById("track-status").innerText =
-            " Could not get location. Enable GPS and allow location access.";
-          console.error(err);
-        }, { enableHighAccuracy: true });
+        watchId = navigator.geolocation.watchPosition(
+          updateLocation,
+          () => alert("Unable to fetch location"),
+          { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
+        );
+        document.getElementById("button").style.display = "none";
+        document.getElementById("stopButton").style.display = "inline-block";
       } else {
-        alert("Geolocation not supported on this device.");
+        alert("Geolocation is not supported by this browser.");
       }
     }
 
-    // ------- VIEWING MODE -------
-    async function fetchLocation() {
-      try {
-        const response = await fetch(`${SERVER_URL}/get`);
-        const data = await response.json();
-
-        if (data.lat && data.lon) {
-          document.getElementById("view-status").innerText = `Lat: ${data.lat}, Lon: ${data.lon}`;
-          document.getElementById("map").src =
-            `https://www.google.com/maps?q=${data.lat},${data.lon}&z=15&output=embed`;
-        } else {
-          document.getElementById("view-status").innerText = " Waiting for tracked phone to send location...";
-        }
-      } catch (err) {
-        console.error("Error fetching location:", err);
+    function stopTracking() {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+        document.getElementById("button").style.display = "inline-block";
+        document.getElementById("stopButton").style.display = "none";
       }
-    }
-
-    function startViewing() {
-      document.getElementById("viewing-section").classList.remove("hidden");
-      document.getElementById("tracking-section").classList.add("hidden");
-      setInterval(fetchLocation, 3000);
     }
   </script>
 </body>

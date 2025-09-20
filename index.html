@@ -3,112 +3,112 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Real-Time Location Tracker</title>
+  <title>Phone Location Tracker</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 10px; }
+    .container { max-width: 500px; margin: auto; }
+    textarea, input { width: 100%; margin-bottom: 10px; }
+    iframe { border: none; }
+  </style>
 </head>
 <body>
   <div class="container">
-    <button id="button" onclick="startTracking()">Start Tracking</button>
-    <button id="stopButton" onclick="stopTracking()" style="display:none;">Stop Tracking</button>
+    <h2>Phone Location Tracker</h2>
 
-    <div class="location-details">
-      <div class="form-section">
-        <label>Address</label>
-        <textarea id="Address" rows="4" readonly>Waiting for location...</textarea>
+    <button onclick="startSharing()">Start Sharing My Location</button>
+    <button onclick="stopSharing()">Stop Sharing</button>
+    <button onclick="startViewing()">View Tracked Phone</button>
 
-        <label>Coordinates</label>
-        <div class="coords">
-          <input type="text" id="latitude" value="00.000000" readonly>
-          <input type="text" id="longitude" value="00.000000" readonly>
-        </div>
-        <p id="status"></p>
-      </div>
+    <p id="status"></p>
 
-      <div class="map-section">
-        <iframe id="iframe"
-          src="https://www.google.com/maps?q=&z=5&output=embed"
-          allowfullscreen
-          loading="lazy"
-          width="100%"
-          height="300">
-        </iframe>
-      </div>
+    <textarea id="Address" rows="4" readonly>Waiting for location...</textarea>
+
+    <div>
+      <input type="text" id="latitude" placeholder="Latitude" readonly>
+      <input type="text" id="longitude" placeholder="Longitude" readonly>
     </div>
+
+    <iframe id="iframe"
+      src="https://www.google.com/maps?q=&z=5&output=embed"
+      width="100%"
+      height="300">
+    </iframe>
   </div>
 
   <script>
+    const SERVER_URL = "http:// 192.168.137.52:5000"; // replace with your PC IP
     let watchId = null;
+    let viewingInterval = null;
 
-    async function updateLocation(position) {
-      const lat = position.coords.latitude.toFixed(6);
-      const lon = position.coords.longitude.toFixed(6);
-
-      document.getElementById("latitude").value = lat;
-      document.getElementById("longitude").value = lon;
-      document.getElementById("status").innerText = 
-        `Accuracy: ${position.coords.accuracy.toFixed(1)} meters`;
-
-      document.getElementById("iframe").src =
-        `https://www.google.com/maps?q=${lat},${lon}&z=15&output=embed`;
-
+    async function sendLocation(lat, lon) {
       try {
-        const response = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`
-        );
-        const data = await response.json();
+        await fetch(`${SERVER_URL}/update`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lat, lon })
+        });
+        document.getElementById("status").innerText = " Location sent!";
+      } catch (error) {
+        document.getElementById("status").innerText = " Failed to send location";
+        console.error(error);
+      }
+    }
 
-        if (data && data.address) {
-          const addr = data.address;
-          const addressText = `
-            Continent: ${addr.continent || "N/A"}
-            Country: ${addr.country || "N/A"}
-            State/Region: ${addr.state || "N/A"}
-            District: ${addr.county || addr.city_district || "N/A"}
-            City/Town: ${addr.city || addr.town || addr.village || "N/A"}
-            Street: ${addr.road || "N/A"}
-            Postal Code: ${addr.postcode || "N/A"}
-            Facility/Place: ${addr.public_building || addr.neighbourhood || addr.suburb || "N/A"}
-          `.trim();
+    async function fetchTrackedLocation() {
+      try {
+        const res = await fetch(`${SERVER_URL}/get`);
+        const data = await res.json();
 
-          document.getElementById("Address").value = addressText;
+        if (data.lat && data.lon) {
+          updateUI(data.lat, data.lon);
         } else {
-          document.getElementById("Address").value = "Address not found!";
+          document.getElementById("status").innerText = "⏳ Waiting for phone to send location...";
         }
       } catch (error) {
-        document.getElementById("Address").value = "Failed to fetch address.";
-        console.error("Reverse geocoding error:", error);
+        document.getElementById("status").innerText = " Error fetching location";
+        console.error(error);
       }
     }
 
-    function startTracking() {
+    function updateUI(lat, lon) {
+      document.getElementById("latitude").value = lat;
+      document.getElementById("longitude").value = lon;
+      document.getElementById("iframe").src = `https://www.google.com/maps?q=${lat},${lon}&z=15&output=embed`;
+      document.getElementById("Address").value = `Latitude: ${lat}\nLongitude: ${lon}`;
+    }
+
+    function startSharing() {
       if (navigator.geolocation) {
-        document.getElementById("status").innerText = "Getting location...";
+        document.getElementById("status").innerText = " Getting your location...";
         watchId = navigator.geolocation.watchPosition(
-          updateLocation,
-          (error) => {
-            console.error("Geolocation error:", error);
-            document.getElementById("status").innerText =
-              "Unable to fetch location: " + error.message;
+          (pos) => {
+            const lat = pos.coords.latitude.toFixed(6);
+            const lon = pos.coords.longitude.toFixed(6);
+            updateUI(lat, lon);
+            sendLocation(lat, lon);
           },
-          {
-            enableHighAccuracy: true,
-            maximumAge: 0,
-            timeout: 10000,
-          }
+          (err) => {
+            document.getElementById("status").innerText = "Cannot get location: " + err.message;
+          },
+          { enableHighAccuracy: true }
         );
-        document.getElementById("button").style.display = "none";
-        document.getElementById("stopButton").style.display = "inline-block";
       } else {
-        alert("Geolocation is not supported by this browser.");
+        alert("Geolocation is not supported on this device.");
       }
     }
 
-    function stopTracking() {
+    function stopSharing() {
       if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
-        document.getElementById("status").innerText = "Tracking stopped.";
-        document.getElementById("button").style.display = "inline-block";
-        document.getElementById("stopButton").style.display = "none";
+        document.getElementById("status").innerText = "⏹ Stopped sharing location.";
+      }
+    }
+
+    function startViewing() {
+      if (viewingInterval === null) {
+        viewingInterval = setInterval(fetchTrackedLocation, 3000); // refresh every 3s
+        document.getElementById("status").innerText = "👀 Viewing tracked phone location...";
       }
     }
   </script>

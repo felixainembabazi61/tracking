@@ -3,113 +3,81 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Phone Location Tracker</title>
-  <style>
-    body { font-family: Arial, sans-serif; padding: 10px; }
-    .container { max-width: 500px; margin: auto; }
-    textarea, input { width: 100%; margin-bottom: 10px; }
-    iframe { border: none; }
-  </style>
+  <title>Live Location Tracker</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="container">
-    <h2>Phone Location Tracker</h2>
+  <h2>Live Location Tracker</h2>
+  <p>Select mode:</p>
+  <button class="track" onclick="startTracking()">Track My Location</button>
+  <button class="view" onclick="startViewing()">View Location</button>
 
-    <button onclick="startSharing()">Start Sharing My Location</button>
-    <button onclick="stopSharing()">Stop Sharing</button>
-    <button onclick="startViewing()">View Tracked Phone</button>
+  <div id="tracking-section" class="hidden">
+    <p class="status" id="track-status">Waiting to start...</p>
+  </div>
 
-    <p id="status"></p>
-
-    <textarea id="Address" rows="4" readonly>Waiting for location...</textarea>
-
-    <div>
-      <input type="text" id="latitude" placeholder="Latitude" readonly>
-      <input type="text" id="longitude" placeholder="Longitude" readonly>
-    </div>
-
-    <iframe id="iframe"
-      src="https://www.google.com/maps?q=&z=5&output=embed"
-      width="100%"
-      height="300">
-    </iframe>
+  <div id="viewing-section" class="hidden">
+    <p class="status" id="view-status">Waiting for location...</p>
+    <iframe id="map" src="https://www.google.com/maps?q=&z=5&output=embed"></iframe>
   </div>
 
   <script>
-    const SERVER_URL = "http:// 192.168.137.52:5000"; // replace with your PC IP
-    let watchId = null;
-    let viewingInterval = null;
+    const SERVER_URL = "http:// 192.168.137.52:5000";
 
-    async function sendLocation(lat, lon) {
-      try {
-        await fetch(`${SERVER_URL}/update`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ lat, lon })
-        });
-        document.getElementById("status").innerText = " Location sent!";
-      } catch (error) {
-        document.getElementById("status").innerText = " Failed to send location";
-        console.error(error);
+    // ------- TRACKING MODE -------
+    function sendLocation(position) {
+      const lat = position.coords.latitude.toFixed(6);
+      const lon = position.coords.longitude.toFixed(6);
+
+      document.getElementById("track-status").innerText = `📡 Sending: ${lat}, ${lon}`;
+
+      fetch(`${SERVER_URL}/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat, lon })
+      })
+      .then(res => res.json())
+      .then(() => console.log("Location sent"))
+      .catch(err => console.error(" Error sending:", err));
+    }
+
+    function startTracking() {
+      document.getElementById("tracking-section").classList.remove("hidden");
+      document.getElementById("viewing-section").classList.add("hidden");
+
+      if (navigator.geolocation) {
+        navigator.geolocation.watchPosition(sendLocation, (err) => {
+          document.getElementById("track-status").innerText =
+            " Could not get location. Enable GPS and allow location access.";
+          console.error(err);
+        }, { enableHighAccuracy: true });
+      } else {
+        alert("Geolocation not supported on this device.");
       }
     }
 
-    async function fetchTrackedLocation() {
+    // ------- VIEWING MODE -------
+    async function fetchLocation() {
       try {
-        const res = await fetch(`${SERVER_URL}/get`);
-        const data = await res.json();
+        const response = await fetch(`${SERVER_URL}/get`);
+        const data = await response.json();
 
         if (data.lat && data.lon) {
-          updateUI(data.lat, data.lon);
+          document.getElementById("view-status").innerText = `Lat: ${data.lat}, Lon: ${data.lon}`;
+          document.getElementById("map").src =
+            `https://www.google.com/maps?q=${data.lat},${data.lon}&z=15&output=embed`;
         } else {
-          document.getElementById("status").innerText = "⏳ Waiting for phone to send location...";
+          document.getElementById("view-status").innerText = " Waiting for tracked phone to send location...";
         }
-      } catch (error) {
-        document.getElementById("status").innerText = " Error fetching location";
-        console.error(error);
-      }
-    }
-
-    function updateUI(lat, lon) {
-      document.getElementById("latitude").value = lat;
-      document.getElementById("longitude").value = lon;
-      document.getElementById("iframe").src = `https://www.google.com/maps?q=${lat},${lon}&z=15&output=embed`;
-      document.getElementById("Address").value = `Latitude: ${lat}\nLongitude: ${lon}`;
-    }
-
-    function startSharing() {
-      if (navigator.geolocation) {
-        document.getElementById("status").innerText = " Getting your location...";
-        watchId = navigator.geolocation.watchPosition(
-          (pos) => {
-            const lat = pos.coords.latitude.toFixed(6);
-            const lon = pos.coords.longitude.toFixed(6);
-            updateUI(lat, lon);
-            sendLocation(lat, lon);
-          },
-          (err) => {
-            document.getElementById("status").innerText = "Cannot get location: " + err.message;
-          },
-          { enableHighAccuracy: true }
-        );
-      } else {
-        alert("Geolocation is not supported on this device.");
-      }
-    }
-
-    function stopSharing() {
-      if (watchId !== null) {
-        navigator.geolocation.clearWatch(watchId);
-        watchId = null;
-        document.getElementById("status").innerText = "⏹ Stopped sharing location.";
+      } catch (err) {
+        console.error("Error fetching location:", err);
       }
     }
 
     function startViewing() {
-      if (viewingInterval === null) {
-        viewingInterval = setInterval(fetchTrackedLocation, 3000); // refresh every 3s
-        document.getElementById("status").innerText = "👀 Viewing tracked phone location...";
-      }
+      document.getElementById("viewing-section").classList.remove("hidden");
+      document.getElementById("tracking-section").classList.add("hidden");
+      setInterval(fetchLocation, 3000);
     }
   </script>
 </body>
